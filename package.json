@@ -1,0 +1,10 @@
+{
+  "name": "astah-mcp-server",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node astah-mcp-server.js",
+    "check": "node --check astah-mcp-server.js"
+  }
+}

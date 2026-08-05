@@ -1,0 +1,11 @@
+# Projetos gerados pelo Astah
+*.asta
+*.astah
+
+# Compilação Java gerada automaticamente pelo MCP
+java/*.class
+
+# Dependências e arquivos locais
+node_modules/
+.DS_Store
+Thumbs.db
