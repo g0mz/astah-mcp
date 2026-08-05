@@ -12,7 +12,8 @@ let pending = "";
 const send = message => child.stdin.write(`${JSON.stringify(message)}\n`);
 const timeout = setTimeout(() => {
   child.kill();
-  throw new Error("Timeout no teste MCP.");
+  process.stderr.write("Timeout no teste MCP.\n");
+  process.exitCode = 1;
 }, 120000);
 
 child.stderr.on("data", data => process.stderr.write(data));
@@ -28,17 +29,40 @@ child.stdout.on("data", chunk => {
       send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     } else if (response.id === 2) {
       const names = response.result.tools.map(tool => tool.name);
-      if (!names.includes("verify_astah_visual_layout")) throw new Error("Ferramenta de revisão visual ausente.");
-      send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "create_meteorological_station_model", arguments: { outputPath, layoutProfile: "domain" } } });
+      for (const expected of ["create_astah_model", "get_astah_capabilities", "verify_astah_visual_layout"]) {
+        if (!names.includes(expected)) throw new Error(`Ferramenta ausente: ${expected}.`);
+      }
+      send({
+        jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: {
+          name: "create_astah_model",
+          arguments: {
+            outputPath,
+            exerciseContext: "Modele clientes que realizam pedidos.",
+            diagrams: [{
+              type: "class", name: "Modelo de Pedidos",
+              nodes: [
+                { id: "cliente", kind: "class", name: "Cliente" },
+                { id: "pedido", kind: "class", name: "Pedido" }
+              ],
+              members: [
+                { node: "cliente", kind: "attribute", name: "nome", type: "String" },
+                { node: "pedido", kind: "operation", name: "calcularTotal", type: "decimal" }
+              ],
+              links: [{ kind: "association", source: "cliente", target: "pedido", label: "realiza", sourceMultiplicity: "1", targetMultiplicity: "0..*" }]
+            }]
+          }
+        }
+      });
     } else if (response.id === 3) {
       if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? "Falha no gerador.");
       const content = response.result.content ?? [];
       const imageCount = content.filter(item => item.type === "image").length;
       const text = content.filter(item => item.type === "text").map(item => item.text).join("\n");
-      if (imageCount !== 2) throw new Error(`Esperados 2 diagramas exportados; recebidos ${imageCount}.`);
+      if (imageCount !== 1) throw new Error(`Esperado 1 diagrama exportado; recebidos ${imageCount}.`);
       if (!text.includes('"visualConfirmationRequired": true')) throw new Error("Instrução de confirmação visual ausente.");
       if (!text.includes('"temporaryReview": true')) throw new Error("Revisão temporária não foi informada.");
-      console.log(JSON.stringify({ server: "astah-mcp", version: "3.0.0", project: outputPath, exportedImages: imageCount, visualConfirmationRequired: true, temporaryReviewRemoved: true }, null, 2));
+      console.log(JSON.stringify({ server: "astah-mcp", version: "4.0.0", project: outputPath, exportedImages: imageCount, visualConfirmationRequired: true, temporaryReviewRemoved: true }, null, 2));
       clearTimeout(timeout);
       child.kill();
     }

@@ -1,10 +1,12 @@
 {
   "name": "astah-mcp-server",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node astah-mcp-server.js",
-    "check": "node --check astah-mcp-server.js"
+    "check": "node --check astah-mcp-server.js",
+    "test:smoke": "node tests/smoke-client.mjs",
+    "test:all": "node tests/all-diagrams-client.mjs"
   }
 }

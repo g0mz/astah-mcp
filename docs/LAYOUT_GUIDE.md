@@ -4,12 +4,12 @@ Estas regras são aplicadas pelo gerador e pela verificação final do MCP. O fo
 
 ## Estrutura visual
 
-1. Organize a história principal do domínio da esquerda para a direita.
-2. Coloque superclasses centralizadas acima das subclasses.
+1. Organize a leitura principal da esquerda para a direita ou, em fluxos comportamentais, de cima para baixo.
+2. Coloque superclasses centralizadas acima das subclasses e mantenha elementos do mesmo nível na mesma linha.
 3. Mantenha todos os elementos pedidos em um único diagrama; somente crie outra visão mediante solicitação explícita.
 4. Calcule cada caixa pelo maior texto visível e use a menor largura que não corte o conteúdo.
-5. Alinhe classes do mesmo nível e preserve apenas o corredor mínimo seguro entre caixas ligadas.
-6. Evite linhas ou textos sobre qualquer caixa, atributo ou operação.
+5. Alinhe elementos do mesmo nível e preserve apenas o corredor mínimo seguro entre caixas ligadas.
+6. Evite linhas ou textos sobre qualquer caixa, símbolo, atributo, operação ou mensagem.
 7. Distribua elementos equivalentes simetricamente em torno do eixo da superclasse ou do módulo.
 
 ## Relacionamentos
@@ -19,15 +19,18 @@ Estas regras são aplicadas pelo gerador e pela verificação final do MCP. O fo
 3. Posicione cardinalidades junto aos extremos, sem concorrer com o nome da associação.
 4. Use rotas ortogonais somente quando houver um corredor livre; em hierarquias, prefira um leque limpo.
 5. Não aceite linhas coincidentes, cruzamentos desnecessários ou símbolos de salto.
-6. Se duas relações disputarem o mesmo corredor, reposicione e compacte as classes no mesmo diagrama.
+6. Se duas relações disputarem o mesmo corredor, reposicione e compacte os elementos no mesmo diagrama.
 7. Priorize um único segmento reto; quando for necessário desviar, use segmentos horizontais e verticais com ângulos de 90 graus.
 8. Use diagonais somente em leques de generalização ou quando elas forem mais claras que uma rota ortogonal.
 
-## Divisão das visões
+## Organização por tipo
 
-- Modelo conceitual: conceitos, relacionamentos e multiplicidades.
-- Diagrama de classes — domínio: atributos, operações, relações e todas as hierarquias no mesmo canvas.
-- Diagramas auxiliares: somente quando forem pedidos explicitamente pelo usuário.
+- Classes e casos de uso: hierarquias verticais, elementos equivalentes alinhados e relações curtas.
+- Estados e atividades: fluxo principal vertical, decisões centralizadas e rótulos fora dos símbolos.
+- Sequência: linhas de vida igualmente espaçadas e mensagens em ordem temporal, sem diagonais.
+- Estrutura composta: classes estruturadas alinhadas, portas nas bordas voltadas aos seus pares e corredor livre para conectores.
+- Mapa mental: um tópico central e ramos equilibrados.
+- Diagramas adicionais: somente quando forem pedidos explicitamente pelo usuário ou pelo enunciado.
 
 ## Verificação final obrigatória
 
@@ -43,10 +46,10 @@ Após toda produção:
 
 ## Checklist visual
 
-- Nenhuma classe toca ou cobre outra.
+- Nenhum elemento toca ou cobre outro.
 - Cada nome de associação possui espaço em branco ao redor.
 - Multiplicidades não encostam em nomes, setas ou caixas.
-- Nenhuma linha atravessa uma classe ou texto.
+- Nenhuma linha atravessa um elemento ou texto.
 - Generalizações não têm texto redundante.
 - O caminho de cada relação pode ser seguido sem ambiguidade.
 - As hierarquias estão equilibradas em torno da superclasse.
