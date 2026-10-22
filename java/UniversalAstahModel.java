@@ -49,7 +49,7 @@ public final class UniversalAstahModel {
     }
 
     private static final class Link {
-        String id, kind, source, target, label, sourceMultiplicity, targetMultiplicity, reference;
+        String id, kind, source, target, label, sourceMultiplicity, targetMultiplicity, reference, points;
     }
 
     private static final class Diagram {
@@ -117,6 +117,7 @@ public final class UniversalAstahModel {
                     link.sourceMultiplicity = decode(field(values, 6));
                     link.targetMultiplicity = decode(field(values, 7));
                     link.reference = decode(field(values, 8));
+                    link.points = decode(field(values, 9));
                     current.links.add(link);
                     break;
                 }
@@ -142,6 +143,20 @@ public final class UniversalAstahModel {
         presentation.setProperty("fill.color", "#F7F7F7");
     }
 
+    /** Rota calculada pelo layout ("x,y;x,y"): os pontos entram entre as duas pontas. */
+    private static void route(ILinkPresentation link, Link spec) throws Exception {
+        if (spec.points == null || spec.points.isBlank()) { route(link); return; }
+        Point2D[] points = link.getPoints();
+        List<Point2D> path = new ArrayList<>();
+        path.add(points[0]);
+        for (String pair : spec.points.split(";")) {
+            String[] xy = pair.split(",");
+            path.add(new Point2D.Double(Double.parseDouble(xy[0]), Double.parseDouble(xy[1])));
+        }
+        path.add(points[points.length - 1]);
+        link.setPoints(path.toArray(new Point2D[0]));
+    }
+
     private static void route(ILinkPresentation link) throws Exception {
         Point2D[] points = link.getPoints();
         if (points.length < 2) return;
@@ -149,8 +164,11 @@ public final class UniversalAstahModel {
         Point2D end = points[points.length - 1];
         double dx = Math.abs(start.getX() - end.getX());
         double dy = Math.abs(start.getY() - end.getY());
-        if (dx < 8 || dy < 8) {
-            link.setPoints(new Point2D[] { start, end });
+        if (dx < 8) {
+            // Quase alinhados: a linha fica vertical em vez de levemente inclinada.
+            link.setPoints(new Point2D[] { start, new Point2D.Double(start.getX(), end.getY()) });
+        } else if (dy < 8) {
+            link.setPoints(new Point2D[] { start, new Point2D.Double(end.getX(), start.getY()) });
         } else if (dx >= dy) {
             double middle = (start.getX() + end.getX()) / 2;
             link.setPoints(new Point2D[] { start, new Point2D.Double(middle, start.getY()), new Point2D.Double(middle, end.getY()), end });
@@ -357,7 +375,7 @@ public final class UniversalAstahModel {
         for (Link link : spec.links) {
             ILinkPresentation transition = editor.createTransition(nodes.get(link.source), nodes.get(link.target));
             transition.setLabel(link.label);
-            route(transition);
+            route(transition, link);
         }
     }
 
@@ -392,7 +410,7 @@ public final class UniversalAstahModel {
                 ? editor.createDependency(link.label, nodes.get(link.source), nodes.get(link.target))
                 : editor.createFlow(nodes.get(link.source), nodes.get(link.target));
             if (!link.label.isBlank() && !link.kind.equals("dependency")) flow.setLabel(link.label);
-            route(flow);
+            route(flow, link);
         }
     }
 

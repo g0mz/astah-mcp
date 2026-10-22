@@ -48,6 +48,18 @@ O arranjo segue as diretrizes de Scott Ambler e é aplicado automaticamente quan
 9. Toda elipse tem 42 px de altura e largura calculada pelo nome, sem quebra de linha. O passo vertical é de 58 px, a faixa de dependentes fica a 90 px do caso base e os atores ficam a pelo menos 130 px da coluna (40% da altura da pilha, quando ela for maior).
 10. Não há moldura de sistema: o próprio diagrama do Astah já delimita o escopo, e uma moldura sem significado é desaconselhada.
 
+## Atividades e estados
+
+Aplicado automaticamente quando nenhuma posição é informada e não há nós aninhados.
+
+1. Cada nó desce para a camada seguinte à do seu predecessor mais distante. Cada camada tem a altura do seu nó mais alto, mais 52 px de respiro para a seta e a guarda.
+2. O caminho principal é a primeira saída de cada nó, na ordem dos links, e fica na coluna central. Por isso, liste primeiro a saída principal de cada decisão.
+3. Cada saída extra de uma decisão ganha uma coluna lateral, e o ramo volta à coluna central na junção.
+4. A seta de um ramo sai pela lateral da decisão e desce até o nó. A seta de volta desce do nó e entra pela lateral da junção.
+5. Laços de retorno sobem por um corredor externo à direita, a 30 px do nó mais largo, sem atravessar nenhum nó. Os ramos laterais são explorados antes do principal, e assim o retorno identificado é a última aresta do laço.
+6. Nós quase alinhados (diferença menor que 8 px) recebem uma seta perfeitamente vertical ou horizontal.
+7. Limite da API: o Astah centraliza a guarda sobre a seta e não permite mover o rótulo. Em setas verticais, a linha passa pelo texto. Quando isso incomodar, arraste o rótulo no próprio Astah.
+
 ## Compactação
 
 1. Use a menor distância que ainda deixa rótulos, setas e multiplicidades livres. Espaço só existe para separar elementos ou abrir corredor para uma linha.

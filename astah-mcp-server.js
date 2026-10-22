@@ -429,6 +429,100 @@ function layoutUseCases(diagram) {
   return true;
 }
 
+/**
+ * Fluxo em camadas para atividades e estados: cada nó desce para a camada
+ * seguinte à do seu predecessor mais distante. O caminho principal (a primeira
+ * saída de cada nó, na ordem dos links) fica na coluna central; cada ramo extra
+ * de uma decisão ganha uma coluna lateral e volta ao centro na junção. Ramos
+ * saem de lado e descem; retornos descem e entram de lado. Laços de volta
+ * sobem por um corredor externo à direita, sem atravessar nenhum nó.
+ * Retorna false quando há nós aninhados ou posições informadas.
+ */
+function layoutFlow(diagram) {
+  const { nodes, members } = diagram;
+  if (!diagram.links.length || nodes.some(node => node.parent || node.x !== undefined || node.y !== undefined)) return false;
+  // GAP_Y: respiro entre camadas, suficiente para a seta e uma guarda.
+  const GAP_Y = 52, COLUMN_GAP = 50, LANE_GAP = 30, MARGIN = 30;
+  const heightOf = node => ({ action: 24, send_signal: 24, accept_event: 24, accept_time: 30, process: 24, state: 36, fork: 10, join: 10 })[node.kind] ?? 20;
+  for (const node of nodes) node.width ??= visualNodeWidth(node, members);
+  const links = diagram.links.filter(link => link.kind !== "dependency" && link.source !== link.target);
+  const out = new Map(nodes.map(node => [node.id, links.filter(link => link.source === node.id)]));
+
+  // Laços: arestas que voltam a um nó ainda aberto na busca em profundidade.
+  // Os ramos laterais são explorados antes do principal para que o retorno
+  // seja a última aresta do laço, e não a entrada do ramo na junção.
+  const back = new Set(), seen = new Map();
+  const visit = id => {
+    seen.set(id, "open");
+    for (const link of [...out.get(id)].reverse()) {
+      if (seen.get(link.target) === "open") back.add(link);
+      else if (!seen.has(link.target)) visit(link.target);
+    }
+    seen.set(id, "done");
+  };
+  const starts = nodes.filter(node => node.kind === "initial");
+  (starts.length ? starts : [nodes[0]]).forEach(node => visit(node.id));
+  nodes.forEach(node => { if (!seen.has(node.id)) visit(node.id); });
+  const forward = links.filter(link => !back.has(link));
+
+  const indegree = new Map(nodes.map(node => [node.id, forward.filter(link => link.target === node.id).length]));
+  const queue = nodes.filter(node => !indegree.get(node.id)).map(node => node.id);
+  const order = [];
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const link of forward.filter(item => item.source === id)) {
+      indegree.set(link.target, indegree.get(link.target) - 1);
+      if (!indegree.get(link.target)) queue.push(link.target);
+    }
+  }
+  const layer = new Map(), column = new Map(), wanted = new Map(), taken = new Set();
+  for (const id of order) {
+    const parents = forward.filter(link => link.target === id).map(link => link.source);
+    layer.set(id, parents.length ? Math.max(...parents.map(parent => layer.get(parent) + 1)) : 0);
+    // Na junção o nó volta para a coluna mais próxima do centro entre as pedidas.
+    const options = wanted.get(id) ?? [0];
+    let col = options.reduce((best, value) => Math.abs(value) < Math.abs(best) ? value : best);
+    while (taken.has(`${layer.get(id)}:${col}`)) col += col >= 0 ? 1 : -1;
+    column.set(id, col);
+    taken.add(`${layer.get(id)}:${col}`);
+    forward.filter(link => link.source === id).forEach((link, index) => {
+      wanted.set(link.target, [...(wanted.get(link.target) ?? []), col + index]);
+    });
+  }
+
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const widest = Math.max(...nodes.map(node => node.width));
+  const minColumn = Math.min(...column.values());
+  const centerX = id => MARGIN + widest / 2 + (column.get(id) - minColumn) * (widest + COLUMN_GAP);
+  const layerTop = [];
+  const layerCount = Math.max(...layer.values()) + 1;
+  for (let index = 0, y = MARGIN; index < layerCount; index++) {
+    layerTop.push(y);
+    y += Math.max(...nodes.filter(node => layer.get(node.id) === index).map(heightOf)) + GAP_Y;
+  }
+  const top = id => layerTop[layer.get(id)];
+  const centerY = id => top(id) + heightOf(byId.get(id)) / 2;
+  for (const node of nodes) {
+    node.x = Math.round(centerX(node.id) - node.width / 2);
+    node.y = Math.round(top(node.id));
+  }
+
+  for (const link of forward) {
+    const from = column.get(link.source), to = column.get(link.target);
+    if (from === to) continue;
+    link.points ??= Math.abs(to) < Math.abs(from)
+      ? [[Math.round(centerX(link.source)), Math.round(centerY(link.target))]]
+      : [[Math.round(centerX(link.target)), Math.round(centerY(link.source))]];
+  }
+  let lane = Math.max(...nodes.map(node => node.x + node.width)) + LANE_GAP;
+  for (const link of back) {
+    link.points ??= [[Math.round(lane), Math.round(centerY(link.source))], [Math.round(lane), Math.round(centerY(link.target))]];
+    lane += 20;
+  }
+  return true;
+}
+
 function applyAutomaticLayout(diagram) {
   const nodes = diagram.nodes;
   const members = diagram.members;
@@ -449,6 +543,7 @@ function applyAutomaticLayout(diagram) {
     });
     return;
   }
+  if ((diagram.type === "activity" || diagram.type === "state_machine") && layoutFlow(diagram)) return;
   if (diagram.type === "activity" || diagram.type === "state_machine") {
     const columns = nodes.length > 10 ? 2 : 1;
     const ordered = nodes.map((node, index) => ({ node, index }));
@@ -574,7 +669,7 @@ function serializeSpecification(diagrams) {
     }
     for (const link of diagram.links) {
       const sourceDetail = diagram.type === "sequence" ? link.y : link.sourceMultiplicity;
-      lines.push(["LINK", encodeField(link.id), link.kind, encodeField(link.source), encodeField(link.target), encodeField(link.label), encodeField(sourceDetail), encodeField(link.targetMultiplicity), encodeField(link.reference)].join("\t"));
+      lines.push(["LINK", encodeField(link.id), link.kind, encodeField(link.source), encodeField(link.target), encodeField(link.label), encodeField(sourceDetail), encodeField(link.targetMultiplicity), encodeField(link.reference), encodeField(link.points?.map(point => point.join(",")).join(";"))].join("\t"));
     }
   }
   return `${lines.join("\n")}\n`;
@@ -620,6 +715,7 @@ const layoutGuidelines = [
   "Casos de uso (Ambler): uma coluna na ordem em que acontecem, atores primários à esquerda, sistemas externos à direita, especializações abaixo do ator pai.",
   "Casos de uso: incluídos e extensões na mesma linha do caso base, à direita, com seta horizontal; include vai do base ao incluído e extend da extensão ao base.",
   "Casos de uso: relações retas em leque, presas às extremidades das elipses; nada de cotovelos ou corredores compartilhados.",
+  "Atividades e estados: camadas de cima para baixo, caminho principal (primeira saída de cada nó) na coluna central, ramos em colunas laterais e laços por um corredor externo à direita.",
   "Ao final, exporte todas as visões para PNG e inspecione caixas, linhas, nomes e multiplicidades antes de concluir."
 ];
 
