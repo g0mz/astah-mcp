@@ -29,7 +29,9 @@ Estas regras são aplicadas pelo gerador e pela verificação final do MCP. O fo
 - Duas caixas que dividem uma faixa comum são ligadas por uma linha reta no meio dessa faixa. Na vertical, isso só vale para relações sem nome, porque o Astah centraliza o nome sobre a linha.
 - Casos de uso: ver a seção própria abaixo.
 - Estados e atividades: fluxo principal vertical, decisões centralizadas e rótulos fora dos símbolos.
-- Sequência: linhas de vida igualmente espaçadas e mensagens em ordem temporal, sem diagonais.
+- Sequência: mensagens em ordem temporal, sem diagonais. A distância entre linhas de vida vizinhas cabe as duas cabeças e a maior mensagem entre elas; uma mensagem que cruza várias linhas distribui o que faltar pelos vãos atravessados, e a automensagem reserva o vão à direita. Ordene as linhas de vida pela primeira participação.
+- Sequência: uma chamada que tem retorno deixa a ativação do receptor aberta, e as mensagens que ele envia antes de responder saem dessa ativação. O retorno fica no fim, depois das chamadas aninhadas, e o Astah numera a hierarquia (1.4.1). Escreva a mensagem como `nome(argumentos)`: o gerador separa o argumento, porque o Astah acrescenta os parênteses ao nome.
+- Sequência: a API não cria fragmentos combinados (`alt`, `loop`, `opt`). Mostre o caminho principal e deixe os fluxos alternativos no diagrama de atividades.
 - Estrutura composta: classes estruturadas alinhadas, portas nas bordas voltadas aos seus pares e corredor livre para conectores.
 - Mapa mental: um tópico central e ramos equilibrados.
 - Diagramas adicionais: somente quando forem pedidos explicitamente pelo usuário ou pelo enunciado.

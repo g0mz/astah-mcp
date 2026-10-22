@@ -27,6 +27,7 @@ import com.change_vision.jude.api.inf.model.IClass;
 import com.change_vision.jude.api.inf.model.IElement;
 import com.change_vision.jude.api.inf.model.IEnumeration;
 import com.change_vision.jude.api.inf.model.ILink;
+import com.change_vision.jude.api.inf.model.IMessage;
 import com.change_vision.jude.api.inf.model.IModel;
 import com.change_vision.jude.api.inf.model.IMindMapDiagram;
 import com.change_vision.jude.api.inf.model.INamedElement;
@@ -460,20 +461,40 @@ public final class UniversalAstahModel {
             if (node.width > lifeline.getWidth()) lifeline.setWidth(node.width);
             nodes.put(node.id, lifeline);
         }
+        // Uma chamada que ainda espera retorno deixa a ativação do receptor aberta;
+        // as mensagens que ele envia nesse intervalo saem dessa ativação. Assim o
+        // retorno fica no fim, depois das chamadas aninhadas.
         Map<String, ILinkPresentation> messages = new LinkedHashMap<>();
+        Map<String, java.util.Deque<INodePresentation>> open = new LinkedHashMap<>();
+        Map<String, String> receiver = new LinkedHashMap<>();
+        java.util.Set<String> answered = new java.util.HashSet<>();
+        for (Link link : spec.links) if (link.kind.equals("return")) answered.add(link.reference);
         for (Link link : spec.links) {
             ILinkPresentation message;
             if (link.kind.equals("return")) {
                 ILinkPresentation reference = messages.get(link.reference);
                 if (reference == null) throw new IllegalArgumentException("Mensagem de retorno sem referência válida: " + link.id);
                 message = editor.createReturnMessage(link.label, reference);
+                java.util.Deque<INodePresentation> stack = open.get(receiver.get(link.reference));
+                if (stack != null && !stack.isEmpty()) stack.pop();
             } else {
                 double y = link.sourceMultiplicity.isBlank() ? 100 : Double.parseDouble(link.sourceMultiplicity);
+                java.util.Deque<INodePresentation> active = open.computeIfAbsent(link.source, key -> new java.util.ArrayDeque<>());
+                INodePresentation source = active.isEmpty() ? nodes.get(link.source) : active.peek();
+                // "nome(argumentos)": o Astah já desenha os parênteses, então o argumento vai à parte.
+                String name = link.label, argument = null;
+                int paren = name.indexOf('(');
+                if (paren > 0 && name.endsWith(")")) { argument = name.substring(paren + 1, name.length() - 1); name = name.substring(0, paren); }
                 switch (link.kind) {
-                    case "message": message = editor.createMessage(link.label, nodes.get(link.source), nodes.get(link.target), y); break;
-                    case "create": message = editor.createCreateMessage(link.label, nodes.get(link.source), nodes.get(link.target), y); break;
-                    case "destroy": message = editor.createDestroyMessage(link.label, nodes.get(link.source), nodes.get(link.target), y); break;
+                    case "message": message = editor.createMessage(name, source, nodes.get(link.target), y); break;
+                    case "create": message = editor.createCreateMessage(name, source, nodes.get(link.target), y); break;
+                    case "destroy": message = editor.createDestroyMessage(name, source, nodes.get(link.target), y); break;
                     default: throw new IllegalArgumentException("Mensagem inválida no diagrama de sequência: " + link.kind);
+                }
+                if (argument != null && !argument.isBlank()) ((IMessage) message.getModel()).setArgument(argument);
+                if (link.kind.equals("message") && answered.contains(link.id) && message.getTarget() != null) {
+                    open.computeIfAbsent(link.target, key -> new java.util.ArrayDeque<>()).push(message.getTarget());
+                    receiver.put(link.id, link.target);
                 }
             }
             messages.put(link.id, message);

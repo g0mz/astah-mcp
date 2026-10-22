@@ -606,12 +606,31 @@ function applyAutomaticLayout(diagram) {
   const nodes = diagram.nodes;
   const members = diagram.members;
   if (diagram.type === "sequence") {
-    nodes.forEach((node, index) => {
-      node.width ??= estimateNodeWidth(node, members);
-      node.x ??= 40 + index * 190;
+    // A distância entre linhas de vida vizinhas cabe as duas cabeças e a maior
+    // mensagem que passa entre elas; uma mensagem que cruza várias linhas
+    // distribui o que faltar pelos vãos que atravessa.
+    nodes.forEach(node => { node.width ??= estimateNodeWidth(node, members); });
+    const index = new Map(nodes.map((node, position) => [node.id, position]));
+    const span = nodes.slice(1).map((node, position) => (nodes[position].width + node.width) / 2 + 30);
+    const labelWidth = link => 40 + String(link.label ?? "").length * 6.4;
+    const calls = diagram.links.filter(link => link.kind !== "return" && link.source !== link.target);
+    for (const link of [...calls].sort((a, b) => Math.abs(index.get(a.source) - index.get(a.target)) - Math.abs(index.get(b.source) - index.get(b.target)))) {
+      const from = Math.min(index.get(link.source), index.get(link.target)), to = Math.max(index.get(link.source), index.get(link.target));
+      const missing = labelWidth(link) - span.slice(from, to).reduce((sum, value) => sum + value, 0);
+      for (let gap = from; missing > 0 && gap < to; gap++) span[gap] += missing / (to - from);
+    }
+    // Automensagem: o rótulo fica à direita da linha de vida, no vão seguinte.
+    for (const link of diagram.links.filter(item => item.kind !== "return" && item.source === item.target)) {
+      const position = index.get(link.source);
+      if (position < span.length) span[position] = Math.max(span[position], labelWidth(link) + 40);
+    }
+    let center = 40 + nodes[0].width / 2;
+    nodes.forEach((node, position) => {
+      if (position) center += span[position - 1];
+      node.x ??= Math.round(center - node.width / 2);
       node.y ??= 30;
     });
-    diagram.links.forEach((link, index) => { link.y ??= 110 + index * 55; });
+    diagram.links.forEach((link, index) => { link.y ??= 110 + index * 40; });
     return;
   }
   if (diagram.type === "mindmap") {
@@ -797,6 +816,7 @@ const layoutGuidelines = [
   "Casos de uso: incluídos e extensões na mesma linha do caso base, à direita, com seta horizontal; include vai do base ao incluído e extend da extensão ao base.",
   "Casos de uso: relações retas em leque, presas às extremidades das elipses; nada de cotovelos ou corredores compartilhados.",
   "Classes sem herança: a classe com mais relações no centro, associadas nas laterais na altura dela, partes de composição abaixo e enumerações numa última linha, tudo simétrico ao eixo central.",
+  "Sequência: linhas de vida espaçadas pela maior mensagem entre elas, chamadas aninhadas dentro da ativação aberta do receptor e mensagens escritas como nome(argumentos).",
   "Atividades e estados: camadas de cima para baixo, caminho principal (primeira saída de cada nó) na coluna central, ramos em colunas laterais e laços por um corredor externo à direita.",
   "Ao final, exporte todas as visões para PNG e inspecione caixas, linhas, nomes e multiplicidades antes de concluir."
 ];
