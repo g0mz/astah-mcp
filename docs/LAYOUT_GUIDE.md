@@ -25,7 +25,8 @@ Estas regras são aplicadas pelo gerador e pela verificação final do MCP. O fo
 
 ## Organização por tipo
 
-- Classes: hierarquias verticais, elementos equivalentes alinhados e relações curtas.
+- Classes: hierarquias verticais, elementos equivalentes alinhados e relações curtas. Sem herança, o diagrama se organiza em volta da classe com mais relações: associadas e dependentes à esquerda e à direita, centralizadas na altura dela, a 150 px, para caber o nome e as multiplicidades; partes de composição e agregação numa linha abaixo, simétrica ao eixo dela; enumerações e classes soltas numa última linha centralizada e alinhada pelo topo.
+- Duas caixas que dividem uma faixa comum são ligadas por uma linha reta no meio dessa faixa. Na vertical, isso só vale para relações sem nome, porque o Astah centraliza o nome sobre a linha.
 - Casos de uso: ver a seção própria abaixo.
 - Estados e atividades: fluxo principal vertical, decisões centralizadas e rótulos fora dos símbolos.
 - Sequência: linhas de vida igualmente espaçadas e mensagens em ordem temporal, sem diagonais.
@@ -63,9 +64,10 @@ Aplicado automaticamente quando nenhuma posição é informada e não há nós a
 ## Compactação
 
 1. Use a menor distância que ainda deixa rótulos, setas e multiplicidades livres. Espaço só existe para separar elementos ou abrir corredor para uma linha.
-2. Espaçamentos padrão: 70 px entre caixas da mesma linha e 160 px entre linhas em diagramas de classes; 95 px entre nós em atividades e estados.
-3. Em fluxos verticais, o layout define o centro de cada nó, e o gerador centraliza cada símbolo nesse eixo. Início, ações, decisões e fim ficam alinhados, e as setas saem retas.
-4. A moldura do Astah tem um tamanho mínimo nativo (cerca de 640 x 480) e não pode ser reduzida pela API. Em diagramas pequenos esse vazio é inevitável; nos demais, a moldura acompanha o conteúdo.
+2. Em diagramas de classes, 70 px entre caixas da mesma linha e 70 px de vão livre entre linhas. Cada linha tem a altura estimada da sua caixa mais alta (cabeçalho de 26 px, ou 41 com estereótipo, e 15 px por atributo, operação ou literal), e assim uma classe grande não invade a linha de baixo.
+3. Quando uma relação precisa dobrar, a dobra fica no meio do vão entre as bordas das caixas, e não no ponto médio entre os centros, que numa caixa alta cai dentro dela.
+4. Em fluxos verticais, o layout define o centro de cada nó, e o gerador centraliza cada símbolo nesse eixo. Início, ações, decisões e fim ficam alinhados, e as setas saem retas.
+5. A moldura do Astah tem um tamanho mínimo nativo (cerca de 640 x 480) e não pode ser reduzida pela API. Em diagramas pequenos esse vazio é inevitável; nos demais, a moldura acompanha o conteúdo.
 
 ## Verificação final obrigatória
 

@@ -157,6 +157,31 @@ public final class UniversalAstahModel {
         link.setPoints(path.toArray(new Point2D[0]));
     }
 
+    /**
+     * Meio do vão entre as bordas das duas caixas, não entre os centros: numa
+     * caixa alta o ponto médio dos centros cai dentro dela e a dobra cruza a caixa.
+     */
+    /** Meio da faixa que as duas caixas têm em comum no eixo perpendicular à linha, se houver. */
+    private static Double sharedBand(INodePresentation a, INodePresentation b, boolean horizontalLine) {
+        if (a == null || b == null) return null;
+        double aStart = horizontalLine ? a.getLocation().getY() : a.getLocation().getX();
+        double bStart = horizontalLine ? b.getLocation().getY() : b.getLocation().getX();
+        double low = Math.max(aStart, bStart);
+        double high = Math.min(aStart + (horizontalLine ? a.getHeight() : a.getWidth()), bStart + (horizontalLine ? b.getHeight() : b.getWidth()));
+        return high - low >= 12 ? (low + high) / 2 : null;
+    }
+
+    private static double gapMiddle(INodePresentation a, INodePresentation b, boolean horizontal, double fallback) {
+        if (a == null || b == null) return fallback;
+        double aStart = horizontal ? a.getLocation().getX() : a.getLocation().getY();
+        double bStart = horizontal ? b.getLocation().getX() : b.getLocation().getY();
+        double aEnd = aStart + (horizontal ? a.getWidth() : a.getHeight());
+        double bEnd = bStart + (horizontal ? b.getWidth() : b.getHeight());
+        if (aEnd <= bStart) return (aEnd + bStart) / 2;
+        if (bEnd <= aStart) return (bEnd + aStart) / 2;
+        return fallback;
+    }
+
     private static void route(ILinkPresentation link) throws Exception {
         Point2D[] points = link.getPoints();
         if (points.length < 2) return;
@@ -164,16 +189,27 @@ public final class UniversalAstahModel {
         Point2D end = points[points.length - 1];
         double dx = Math.abs(start.getX() - end.getX());
         double dy = Math.abs(start.getY() - end.getY());
+        // Caixas lado a lado (ou uma sobre a outra) que dividem uma faixa comum
+        // ganham uma linha reta no meio dessa faixa, em vez de um degrau.
+        // Na vertical, só sem nome: o Astah centraliza o nome sobre a linha e o texto seria cortado.
+        boolean named = link.getModel() instanceof INamedElement && !((INamedElement) link.getModel()).getName().isBlank();
+        Double shared = dx >= dy || !named ? sharedBand(link.getSource(), link.getTarget(), dx >= dy) : null;
+        if (shared != null) {
+            link.setPoints(dx >= dy
+                ? new Point2D[] { new Point2D.Double(start.getX(), shared), new Point2D.Double(end.getX(), shared) }
+                : new Point2D[] { new Point2D.Double(shared, start.getY()), new Point2D.Double(shared, end.getY()) });
+            return;
+        }
         if (dx < 8) {
             // Quase alinhados: a linha fica vertical em vez de levemente inclinada.
             link.setPoints(new Point2D[] { start, new Point2D.Double(start.getX(), end.getY()) });
         } else if (dy < 8) {
             link.setPoints(new Point2D[] { start, new Point2D.Double(end.getX(), start.getY()) });
         } else if (dx >= dy) {
-            double middle = (start.getX() + end.getX()) / 2;
+            double middle = gapMiddle(link.getSource(), link.getTarget(), true, (start.getX() + end.getX()) / 2);
             link.setPoints(new Point2D[] { start, new Point2D.Double(middle, start.getY()), new Point2D.Double(middle, end.getY()), end });
         } else {
-            double middle = (start.getY() + end.getY()) / 2;
+            double middle = gapMiddle(link.getSource(), link.getTarget(), false, (start.getY() + end.getY()) / 2);
             link.setPoints(new Point2D[] { start, new Point2D.Double(start.getX(), middle), new Point2D.Double(end.getX(), middle), end });
         }
     }

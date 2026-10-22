@@ -268,19 +268,35 @@ function visualNodeWidth(node, members) {
   return estimateNodeWidth(node, members);
 }
 
-function centeredRows(nodes, members, columns, gapX = 70, gapY = 160) {
+// Altura aproximada da caixa no Astah, medida nas apresentações geradas:
+// cabeçalho de 26 px (41 com estereótipo) e 15 px por linha em cada compartimento.
+function estimateNodeHeight(node, members) {
+  const count = kind => members.filter(member => member.node === node.id && member.kind === kind).length;
+  const compartment = lines => 8 + lines * 15;
+  if (node.kind === "enumeration") return 41 + compartment(count("literal"));
+  if (node.kind === "interface") return 45;
+  if (node.kind === "object") return 30 + compartment(count("attribute"));
+  if (["class", "abstract_class"].includes(node.kind)) return 26 + compartment(count("attribute")) + compartment(count("operation"));
+  if (node.kind === "structured_class") return 85;
+  return 40;
+}
+
+// gapY é o espaço livre entre linhas: cada linha tem a altura da sua caixa mais alta.
+function centeredRows(nodes, members, columns, gapX = 70, gapY = 70) {
   const rows = [];
   for (let index = 0; index < nodes.length; index += columns) rows.push(nodes.slice(index, index + columns));
   const totals = rows.map(row => row.reduce((sum, node) => sum + estimateNodeWidth(node, members), 0) + gapX * Math.max(0, row.length - 1));
   const canvasWidth = Math.max(...totals, 300);
+  let y = 30;
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     let x = 30 + (canvasWidth - totals[rowIndex]) / 2;
     for (const node of rows[rowIndex]) {
       node.width ??= estimateNodeWidth(node, members);
       node.x ??= Math.round(x);
-      node.y ??= 30 + rowIndex * gapY;
+      node.y ??= y;
       x += node.width + gapX;
     }
+    y += Math.max(...rows[rowIndex].map(node => estimateNodeHeight(node, members))) + gapY;
   }
 }
 
@@ -523,6 +539,69 @@ function layoutFlow(diagram) {
   return true;
 }
 
+/**
+ * Classes sem herança, arranjadas em volta da classe com mais relações: as
+ * classes ligadas a ela por associação ou dependência ficam à esquerda e à
+ * direita, centralizadas na altura dela; as partes de composição e agregação
+ * ficam numa linha abaixo, simétrica ao eixo dela; o restante (enumerações e
+ * classes soltas) fecha o diagrama numa última linha centralizada.
+ * Retorna false quando nenhuma classe tem duas relações ou alguma posição foi informada.
+ */
+function layoutClassHub(diagram) {
+  const { nodes, links, members } = diagram;
+  if (nodes.some(node => node.x !== undefined || node.y !== undefined)) return false;
+  if (links.some(link => ["generalization", "realization"].includes(link.kind))) return false;
+  // SIDE_GAP cabe o nome da associação com as duas multiplicidades.
+  const SIDE_GAP = 150, ROW_GAP = 70, BOX_GAP = 70, STACK_GAP = 40, MARGIN = 30;
+  const degree = id => links.filter(link => link.source === id || link.target === id).length;
+  const hub = [...nodes].sort((a, b) => degree(b.id) - degree(a.id))[0];
+  if (degree(hub.id) < 2) return false;
+  for (const node of nodes) node.width ??= estimateNodeWidth(node, members);
+  const height = node => estimateNodeHeight(node, members);
+  const byId = new Map(nodes.map(node => [node.id, node]));
+
+  const parts = [], peers = [];
+  for (const link of links) {
+    const other = link.source === hub.id ? link.target : link.target === hub.id ? link.source : null;
+    if (!other || other === hub.id || parts.includes(byId.get(other)) || peers.includes(byId.get(other))) continue;
+    const whole = ["composition", "aggregation"].includes(link.kind) && link.source === hub.id;
+    (whole ? parts : peers).push(byId.get(other));
+  }
+  const rest = nodes.filter(node => node !== hub && !parts.includes(node) && !peers.includes(node));
+  const left = peers.filter((_, index) => index % 2 === 0), right = peers.filter((_, index) => index % 2 === 1);
+
+  const hubCenterY = MARGIN + Math.max(height(hub), ...[left, right].map(side => side.reduce((sum, node) => sum + height(node), 0) + STACK_GAP * Math.max(0, side.length - 1))) / 2;
+  hub.y = Math.round(hubCenterY - height(hub) / 2);
+  const leftWidth = Math.max(0, ...left.map(node => node.width));
+  hub.x = MARGIN + (leftWidth ? leftWidth + SIDE_GAP : 0);
+  const axis = hub.x + hub.width / 2;
+  const stack = (side, x) => {
+    let y = hubCenterY - (side.reduce((sum, node) => sum + height(node), 0) + STACK_GAP * Math.max(0, side.length - 1)) / 2;
+    for (const node of side) {
+      node.x = Math.round(x(node));
+      node.y = Math.round(y);
+      y += height(node) + STACK_GAP;
+    }
+  };
+  stack(left, node => hub.x - SIDE_GAP - node.width);
+  stack(right, () => hub.x + hub.width + SIDE_GAP);
+
+  // Linhas abaixo: centralizadas no eixo da classe principal e alinhadas pelo topo.
+  let y = Math.max(...[hub, ...peers].map(node => node.y + height(node))) + ROW_GAP;
+  for (const row of [parts, rest].filter(group => group.length)) {
+    let x = axis - (row.reduce((sum, node) => sum + node.width, 0) + BOX_GAP * (row.length - 1)) / 2;
+    for (const node of row) {
+      node.x = Math.round(x);
+      node.y = Math.round(y);
+      x += node.width + BOX_GAP;
+    }
+    y += Math.max(...row.map(height)) + ROW_GAP;
+  }
+  const shift = MARGIN - Math.min(...nodes.map(node => node.x));
+  if (shift > 0) nodes.forEach(node => { node.x += shift; });
+  return true;
+}
+
 function applyAutomaticLayout(diagram) {
   const nodes = diagram.nodes;
   const members = diagram.members;
@@ -560,7 +639,7 @@ function applyAutomaticLayout(diagram) {
   }
   if (diagram.type === "composite_structure") {
     const parents = nodes.filter(node => node.kind === "structured_class");
-    centeredRows(parents, members, Math.max(1, Math.ceil(Math.sqrt(parents.length))), 220, 190);
+    centeredRows(parents, members, Math.max(1, Math.ceil(Math.sqrt(parents.length))), 220, 100);
     const portCounts = new Map();
     for (const node of nodes.filter(item => item.kind === "port")) {
       const owner = nodes.find(item => item.id === node.parent);
@@ -579,6 +658,8 @@ function applyAutomaticLayout(diagram) {
   }
 
   if (diagram.type === "use_case" && layoutUseCases(diagram)) return;
+
+  if (diagram.type === "class" && layoutClassHub(diagram)) return;
 
   const hierarchyLinks = diagram.links.filter(link => link.kind === "generalization");
   if (hierarchyLinks.length) {
@@ -715,6 +796,7 @@ const layoutGuidelines = [
   "Casos de uso (Ambler): uma coluna na ordem em que acontecem, atores primários à esquerda, sistemas externos à direita, especializações abaixo do ator pai.",
   "Casos de uso: incluídos e extensões na mesma linha do caso base, à direita, com seta horizontal; include vai do base ao incluído e extend da extensão ao base.",
   "Casos de uso: relações retas em leque, presas às extremidades das elipses; nada de cotovelos ou corredores compartilhados.",
+  "Classes sem herança: a classe com mais relações no centro, associadas nas laterais na altura dela, partes de composição abaixo e enumerações numa última linha, tudo simétrico ao eixo central.",
   "Atividades e estados: camadas de cima para baixo, caminho principal (primeira saída de cada nó) na coluna central, ramos em colunas laterais e laços por um corredor externo à direita.",
   "Ao final, exporte todas as visões para PNG e inspecione caixas, linhas, nomes e multiplicidades antes de concluir."
 ];
