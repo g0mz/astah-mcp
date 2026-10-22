@@ -25,12 +25,35 @@ Estas regras são aplicadas pelo gerador e pela verificação final do MCP. O fo
 
 ## Organização por tipo
 
-- Classes e casos de uso: hierarquias verticais, elementos equivalentes alinhados e relações curtas.
+- Classes: hierarquias verticais, elementos equivalentes alinhados e relações curtas.
+- Casos de uso: ver a seção própria abaixo.
 - Estados e atividades: fluxo principal vertical, decisões centralizadas e rótulos fora dos símbolos.
 - Sequência: linhas de vida igualmente espaçadas e mensagens em ordem temporal, sem diagonais.
 - Estrutura composta: classes estruturadas alinhadas, portas nas bordas voltadas aos seus pares e corredor livre para conectores.
 - Mapa mental: um tópico central e ramos equilibrados.
 - Diagramas adicionais: somente quando forem pedidos explicitamente pelo usuário ou pelo enunciado.
+
+## Casos de uso
+
+O arranjo segue as diretrizes de Scott Ambler e é aplicado automaticamente quando as posições são omitidas.
+
+1. Os casos de uso formam uma única coluna, empilhados na ordem em que acontecem (os primeiros ficam acima).
+2. Os dois atores com mais associações são os primários e ficam à esquerda, um abaixo do outro, cada um na altura média dos seus casos. Os grupos de casos de cada ator ficam separados por um pequeno respiro.
+3. Os demais atores (sistemas externos) ficam à direita, na altura média dos seus casos. Se alguma linha cortar uma elipse, o ator desce ou sobe até a altura de um dos casos ligados a ele.
+4. Especializações de um ator ficam numa linha logo abaixo do ator pai, em leque.
+5. Incluídos e extensões ficam na mesma linha do caso base, numa faixa à direita. A seta é horizontal porque o Astah centraliza o estereótipo sobre a linha: na vertical o tracejado corta o texto, na horizontal o rótulo fica acima dele.
+6. Na especificação, `include` vai do caso base ao incluído e `extend` vai da extensão ao caso base, como na UML. O gerador converte para a ordem de argumentos da API.
+7. Todas as relações são retas, em leque. Cotovelos ortogonais fazem as associações de um mesmo ator dividirem o mesmo corredor e geram símbolos de salto.
+8. As linhas chegam às extremidades das elipses: pela ponta lateral, quando vêm de um ator, e pelo topo ou pela base, entre casos empilhados. Na exportação o Astah recorta a linha na caixa retangular do caso de uso, e só nas extremidades a caixa e a elipse coincidem.
+9. Toda elipse tem 42 px de altura e largura calculada pelo nome, sem quebra de linha. O passo vertical é de 58 px, a faixa de dependentes fica a 90 px do caso base e os atores ficam a pelo menos 130 px da coluna (40% da altura da pilha, quando ela for maior).
+10. Não há moldura de sistema: o próprio diagrama do Astah já delimita o escopo, e uma moldura sem significado é desaconselhada.
+
+## Compactação
+
+1. Use a menor distância que ainda deixa rótulos, setas e multiplicidades livres. Espaço só existe para separar elementos ou abrir corredor para uma linha.
+2. Espaçamentos padrão: 70 px entre caixas da mesma linha e 160 px entre linhas em diagramas de classes; 95 px entre nós em atividades e estados.
+3. Em fluxos verticais, o layout define o centro de cada nó, e o gerador centraliza cada símbolo nesse eixo. Início, ações, decisões e fim ficam alinhados, e as setas saem retas.
+4. A moldura do Astah tem um tamanho mínimo nativo (cerca de 640 x 480) e não pode ser reduzida pela API. Em diagramas pequenos esse vazio é inevitável; nos demais, a moldura acompanha o conteúdo.
 
 ## Verificação final obrigatória
 
@@ -57,7 +80,9 @@ Após toda produção:
 - Relações alinhadas são retas e mudanças de direção seguem corredores ortogonais.
 - Não há grandes vazios sem função; as caixas estão compactadas até o menor tamanho legível.
 
-## Referências oficiais
+## Referências
+
+- [Scott Ambler — UML 2 Use Case Diagramming Guidelines](http://agilemodeling.com/style/useCaseDiagram.htm)
 
 - [Astah — Layout and align objects](https://astah.net/support/astah-pro/user-guide/layout-align-objects/)
 - [Astah — Class diagrams](https://astah.net/support/astah-pro/user-guide/class-diagrams/)

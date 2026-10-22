@@ -128,6 +128,8 @@ public final class UniversalAstahModel {
         return diagrams;
     }
 
+    private static final double USE_CASE_HEIGHT = 42;
+
     private static Point2D point(Node node) {
         return new Point2D.Double(node.x, node.y);
     }
@@ -263,6 +265,12 @@ public final class UniversalAstahModel {
         for (Node node : spec.nodes) {
             INodePresentation presentation = editor.createNodePresentation(elements.get(node.id), point(node));
             size(presentation, node);
+            // Elipses com a mesma altura mantêm a pilha regular; o Astah cresce a
+            // altura junto com a largura e desalinha a coluna.
+            if (node.kind.equals("use_case")) {
+                presentation.setWidth(node.width);
+                presentation.setHeight(USE_CASE_HEIGHT);
+            }
             presentations.put(node.id, presentation);
         }
         for (Link link : spec.links) {
@@ -272,13 +280,51 @@ public final class UniversalAstahModel {
             switch (link.kind) {
                 case "association": relation = model.createAssociation(source, target, link.label, "", ""); break;
                 case "generalization": relation = model.createGeneralization(source, target, link.label); break;
-                case "include": relation = useCases.createInclude((IUseCase) source, (IUseCase) target, ""); break;
-                case "extend": relation = useCases.createExtend((IUseCase) source, (IUseCase) target, ""); break;
+                // A API recebe (alvo da seta, origem da seta); a especificação segue a UML:
+                // include vai do base ao incluído, extend vai da extensão ao base.
+                case "include": relation = useCases.createInclude((IUseCase) target, (IUseCase) source, ""); break;
+                case "extend": relation = useCases.createExtend((IUseCase) target, (IUseCase) source, ""); break;
                 case "dependency": relation = model.createDependency(source, target, link.label); break;
                 default: throw new IllegalArgumentException("Relação inválida no diagrama de casos de uso: " + link.kind);
             }
-            route(editor.createLinkPresentation(relation, presentations.get(link.source), presentations.get(link.target)));
+            // Casos de uso seguem o leque reto de Ambler: cotovelos no ponto médio
+            // fazem as associações de um mesmo ator dividirem o corredor.
+            INodePresentation from = presentations.get(link.source);
+            INodePresentation to = presentations.get(link.target);
+            straight(editor.createLinkPresentation(relation, from, to), from, to);
         }
+    }
+
+    /**
+     * Linha reta presa a uma das quatro extremidades da elipse. Na exportação o
+     * Astah recorta a linha na caixa do caso de uso, não na elipse, e só nas
+     * extremidades as duas bordas coincidem; em qualquer outro ponto sobra um vão.
+     * A ponta do ator fica no centro dele, como o próprio Astah exige.
+     */
+    private static void straight(ILinkPresentation link, INodePresentation from, INodePresentation to) throws Exception {
+        // Na generalização o primeiro ponto é o pai; os pontos originais dizem a ordem.
+        Point2D[] old = link.getPoints();
+        if (old.length > 0 && old[0].distance(center(to)) < old[0].distance(center(from))) {
+            INodePresentation swap = from; from = to; to = swap;
+        }
+        link.setPoints(new Point2D[] { anchor(from, to), anchor(to, from) });
+    }
+
+    private static Point2D center(INodePresentation node) {
+        Point2D location = node.getLocation();
+        return new Point2D.Double(location.getX() + node.getWidth() / 2, location.getY() + node.getHeight() / 2);
+    }
+
+    private static Point2D anchor(INodePresentation node, INodePresentation other) {
+        Point2D c = center(node), o = center(other);
+        if (!(node.getModel() instanceof IUseCase)) return c;
+        double dx = o.getX() - c.getX(), dy = o.getY() - c.getY();
+        double rx = node.getWidth() / 2 - 1, ry = node.getHeight() / 2 - 1;
+        // Ator sempre chega pela ponta lateral; entre casos empilhados, pelo topo ou pela base.
+        boolean side = !(other.getModel() instanceof IUseCase) || Math.abs(dx) > Math.abs(dy) * 2;
+        return side
+            ? new Point2D.Double(c.getX() + Math.signum(dx) * rx, c.getY())
+            : new Point2D.Double(c.getX(), c.getY() + Math.signum(dy) * ry);
     }
 
     private static INodePresentation parent(Map<String, INodePresentation> nodes, Node node) {
@@ -305,6 +351,7 @@ public final class UniversalAstahModel {
                 default: throw new IllegalArgumentException("Elemento inválido no diagrama de estados: " + node.kind);
             }
             if (node.kind.equals("state")) size(presentation, node);
+            if (node.parent.isBlank()) centerOn(presentation, node);
             nodes.put(node.id, presentation);
         }
         for (Link link : spec.links) {
@@ -337,6 +384,7 @@ public final class UniversalAstahModel {
                 default: throw new IllegalArgumentException("Elemento inválido no diagrama de atividades: " + node.kind);
             }
             if (List.of("action", "send_signal", "accept_event", "accept_time", "process").contains(node.kind)) size(presentation, node);
+            centerOn(presentation, node);
             nodes.put(node.id, presentation);
         }
         for (Link link : spec.links) {
@@ -437,6 +485,17 @@ public final class UniversalAstahModel {
         for (Link link : spec.links) {
             editor.createMMLinkPresentation(nodes.get(link.source), nodes.get(link.target));
         }
+    }
+
+
+    /**
+     * Em fluxos verticais o layout pede o centro de cada nó, não o canto: o Astah
+     * dá a cada símbolo a própria largura, e nós alinhados pelo canto geravam
+     * degraus em toda seta.
+     */
+    private static void centerOn(INodePresentation presentation, Node node) throws Exception {
+        if (node.width <= 0) return;
+        presentation.setLocation(new Point2D.Double(node.x + node.width / 2 - presentation.getWidth() / 2, presentation.getLocation().getY()));
     }
 
     private static void build(ProjectAccessor accessor, BasicModelEditor model, IModel project, Diagram spec, int index) throws Exception {

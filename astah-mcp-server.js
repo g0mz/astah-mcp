@@ -255,6 +255,8 @@ function estimateNodeWidth(node, members) {
     if (member.kind === "literal") visible.push(member.name);
   }
   const nativeMinimum = node.kind === "structured_class" ? 250 : node.kind === "use_case" ? 170 : 110;
+  // A elipse só aproveita a parte central da largura; abaixo disso o Astah quebra o nome em duas linhas.
+  if (node.kind === "use_case") return Math.max(nativeMinimum, Math.round(60 + String(node.name).length * 7.4));
   return Math.max(nativeMinimum, ...visible.map(text => 30 + String(text).length * 6.4));
 }
 
@@ -266,7 +268,7 @@ function visualNodeWidth(node, members) {
   return estimateNodeWidth(node, members);
 }
 
-function centeredRows(nodes, members, columns, gapX = 90, gapY = 190) {
+function centeredRows(nodes, members, columns, gapX = 70, gapY = 160) {
   const rows = [];
   for (let index = 0; index < nodes.length; index += columns) rows.push(nodes.slice(index, index + columns));
   const totals = rows.map(row => row.reduce((sum, node) => sum + estimateNodeWidth(node, members), 0) + gapX * Math.max(0, row.length - 1));
@@ -280,6 +282,151 @@ function centeredRows(nodes, members, columns, gapX = 90, gapY = 190) {
       x += node.width + gapX;
     }
   }
+}
+
+/**
+ * Casos de uso no arranjo de Ambler (agilemodeling.com/style/useCaseDiagram.htm):
+ * atores fora, casos empilhados na ordem em que acontecem, extensões e incluídos
+ * logo abaixo do caso base, especializações abaixo do ator pai. Os dois atores
+ * com mais casos ganham uma coluna cada, um em cada lado; os demais (sistemas
+ * externos) ficam entre as colunas, ou à direita quando só há uma.
+ * Retorna false quando não há associação para orientar o arranjo.
+ */
+function layoutUseCases(diagram) {
+  const { nodes, links, members } = diagram;
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const isKind = (id, kind) => byId.get(id)?.kind === kind;
+  // PITCH = elipse de 42 px (fixada no gerador Java) + 16 px de respiro.
+  const PITCH = 58, LANE_GAP = 90, GROUP_GAP = 30, GAP = 130, ACTOR_HEIGHT = 75, MARGIN = 30;
+  for (const node of nodes) node.width ??= estimateNodeWidth(node, members);
+
+  const parentOf = new Map(links.filter(link => link.kind === "generalization" && isKind(link.source, "actor")).map(link => [link.source, link.target]));
+  const root = id => { const seen = new Set(); while (parentOf.has(id) && !seen.has(id)) { seen.add(id); id = parentOf.get(id); } return id; };
+  const pairs = links.filter(link => link.kind === "association").map(link => {
+    const actor = isKind(link.source, "actor") ? link.source : isKind(link.target, "actor") ? link.target : null;
+    const useCase = isKind(link.source, "use_case") ? link.source : isKind(link.target, "use_case") ? link.target : null;
+    return actor && useCase ? { actor, family: root(actor), useCase } : null;
+  }).filter(Boolean);
+  if (!pairs.length) return false;
+
+  const count = new Map();
+  for (const pair of pairs) count.set(pair.family, (count.get(pair.family) ?? 0) + 1);
+  const order = id => nodes.findIndex(node => node.id === id);
+  const ranked = [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || order(a) - order(b)).slice(0, 2);
+
+  // Extensão aponta para o base; incluído é alvo do base.
+  const baseOf = new Map();
+  for (const link of links) {
+    if (link.kind === "extend") baseOf.set(link.source, link.target);
+    if (link.kind === "include") baseOf.set(link.target, link.source);
+  }
+  const groupOf = new Map();
+  const resolveGroup = (id, seen = new Set()) => {
+    if (groupOf.has(id)) return groupOf.get(id);
+    const own = ranked.find(family => pairs.some(pair => pair.useCase === id && pair.family === family));
+    let group = own !== undefined ? ranked.indexOf(own) : undefined;
+    if (group === undefined && baseOf.has(id) && !seen.has(id)) { seen.add(id); group = resolveGroup(baseOf.get(id), seen); }
+    groupOf.set(id, group ?? 0);
+    return groupOf.get(id);
+  };
+  const useCases = nodes.filter(node => node.kind === "use_case");
+  useCases.forEach(node => resolveGroup(node.id));
+  const primaries = ranked.filter((_, index) => useCases.some(node => groupOf.get(node.id) === index));
+  if (primaries.length < ranked.length) useCases.forEach(node => groupOf.set(node.id, 0));
+
+  // Cada coluna: casos base empilhados na ordem informada. Incluídos e extensões
+  // ficam na mesma linha do base, numa faixa do lado oposto ao ator (Ambler põe o
+  // incluído à direita do base). Seta horizontal porque o Astah centraliza o
+  // estereótipo sobre a linha: na vertical o tracejado corta o texto, na
+  // horizontal o rótulo fica acima dela.
+  const columns = primaries.map((_, index) => {
+    const members = useCases.filter(node => groupOf.get(node.id) === index);
+    const rootBase = node => { const seen = new Set(); let id = node.id; while (baseOf.has(id) && members.some(other => other.id === baseOf.get(id)) && !seen.has(id)) { seen.add(id); id = baseOf.get(id); } return id; };
+    const rows = members.filter(node => rootBase(node) === node.id).map(node => ({ node, deps: members.filter(other => other !== node && rootBase(other) === node.id) }));
+    const dependents = rows.flatMap(row => row.deps);
+    const baseWidth = Math.max(...rows.map(row => row.node.width));
+    const laneWidth = dependents.length ? Math.max(...dependents.map(node => node.width)) : 0;
+    const height = rows.reduce((sum, row) => sum + Math.max(1, row.deps.length) * PITCH, 0) - PITCH;
+    // Ator a uma distância proporcional à pilha: o leque fica aberto sem ficar íngreme.
+    return { rows, baseWidth, laneWidth, gap: Math.max(GAP, Math.round(height * 0.4)) };
+  });
+
+  const family = id => nodes.filter(node => node.kind === "actor" && root(node.id) === id);
+  const familyArea = id => {
+    const children = family(id).filter(node => node.id !== id);
+    const rowWidth = children.reduce((sum, node) => sum + node.width, 0) + 30 * Math.max(0, children.length - 1);
+    return { children, width: Math.max(byId.get(id).width, rowWidth) };
+  };
+  const areas = primaries.map(familyArea);
+  const secondaries = nodes.filter(node => node.kind === "actor" && !primaries.includes(root(node.id)));
+
+  // Os grupos se empilham numa só coluna, com atores primários à esquerda e
+  // sistemas externos à direita: duas colunas lado a lado dobravam a largura.
+  const leftWidth = Math.max(...areas.map(area => area.width));
+  const baseWidth = Math.max(...columns.map(column => column.baseWidth));
+  const laneWidth = Math.max(...columns.map(column => column.laneWidth));
+  const baseX = MARGIN + leftWidth + Math.max(...columns.map(column => column.gap));
+  const laneX = baseX + baseWidth + LANE_GAP;
+  let y = MARGIN;
+  columns.forEach((column, index) => {
+    if (index) y += GROUP_GAP;
+    for (const row of column.rows) {
+      row.node.x ??= baseX;
+      row.node.y ??= y;
+      row.deps.forEach((node, k) => {
+        node.x ??= laneX;
+        node.y ??= y + k * PITCH;
+      });
+      y += Math.max(1, row.deps.length) * PITCH;
+    }
+  });
+  const rightX = (laneWidth ? laneX + laneWidth : baseX + baseWidth) + GAP;
+
+  const centerY = id => byId.get(id).y + 21;
+  const barycenter = actorIds => {
+    const ys = pairs.filter(pair => actorIds.includes(pair.actor)).map(pair => centerY(pair.useCase));
+    return ys.length ? ys.reduce((sum, value) => sum + value, 0) / ys.length : MARGIN + ACTOR_HEIGHT / 2;
+  };
+  // Cada família ocupa o ator pai e, quando houver, a linha de especializações abaixo dele.
+  let floor = MARGIN;
+  for (const id of primaries) {
+    const { children } = areas[primaries.indexOf(id)];
+    const parent = byId.get(id);
+    const middle = MARGIN + leftWidth / 2;
+    parent.x ??= Math.round(middle - parent.width / 2);
+    parent.y ??= Math.round(Math.max(floor, barycenter(family(id).map(node => node.id)) - ACTOR_HEIGHT / 2));
+    let x = middle - (children.reduce((sum, node) => sum + node.width, 0) + 30 * Math.max(0, children.length - 1)) / 2;
+    for (const child of children) {
+      child.x ??= Math.round(x);
+      child.y ??= parent.y + ACTOR_HEIGHT + 50;
+      x += child.width + 30;
+    }
+    floor = parent.y + ACTOR_HEIGHT + (children.length ? 50 + ACTOR_HEIGHT : 0) + 40;
+  }
+
+  // Ator externo no baricentro dos seus casos; se alguma linha dele cortar uma
+  // elipse, tenta a altura de cada caso ligado (a linha fica horizontal ali).
+  const ellipses = useCases.map(node => ({ id: node.id, x: node.x - 4, y: node.y - 4, w: node.width + 8, h: 50 }));
+  const crosses = (actorY, actor) => pairs.filter(pair => pair.actor === actor.id).some(pair => {
+    const target = byId.get(pair.useCase);
+    const x1 = target.x + target.width, y1 = centerY(target.id), x2 = rightX + actor.width / 2, y2 = actorY + 30;
+    for (let step = 1; step < 60; step++) {
+      const px = x1 + (x2 - x1) * step / 60, py = y1 + (y2 - y1) * step / 60;
+      if (ellipses.some(box => box.id !== target.id && px > box.x && px < box.x + box.w && py > box.y && py < box.y + box.h)) return true;
+    }
+    return false;
+  });
+  floor = MARGIN;
+  const placements = secondaries.map(node => {
+    const candidates = [barycenter([node.id]), ...pairs.filter(pair => pair.actor === node.id).map(pair => centerY(pair.useCase))].map(value => value - 30);
+    return { node, y: candidates.find(value => !crosses(value, node)) ?? candidates[0] };
+  });
+  for (const actor of placements.sort((a, b) => a.y - b.y)) {
+    actor.node.x ??= Math.round(rightX);
+    actor.node.y ??= Math.round(Math.max(floor, actor.y));
+    floor = actor.node.y + ACTOR_HEIGHT + 25;
+  }
+  return true;
 }
 
 function applyAutomaticLayout(diagram) {
@@ -306,12 +453,13 @@ function applyAutomaticLayout(diagram) {
     const columns = nodes.length > 10 ? 2 : 1;
     const ordered = nodes.map((node, index) => ({ node, index }));
     for (const { node, index } of ordered) {
-      node.width ??= estimateNodeWidth(node, members);
+      // Largura visual: o gerador centraliza cada símbolo nesta faixa.
+      node.width ??= visualNodeWidth(node, members);
       const column = index % columns;
       const row = Math.floor(index / columns);
       const columnCenter = 170 + column * 300;
       node.x ??= Math.round(columnCenter - visualNodeWidth(node, members) / 2);
-      node.y ??= 30 + row * 145;
+      node.y ??= 30 + row * 95;
     }
     return;
   }
@@ -334,6 +482,8 @@ function applyAutomaticLayout(diagram) {
     }
     return;
   }
+
+  if (diagram.type === "use_case" && layoutUseCases(diagram)) return;
 
   const hierarchyLinks = diagram.links.filter(link => link.kind === "generalization");
   if (hierarchyLinks.length) {
@@ -458,7 +608,7 @@ const layoutGuidelines = [
   "Organize o fluxo principal da esquerda para a direita e heranças de cima para baixo.",
   "Mantenha superclasses centralizadas acima das subclasses e distribua subclasses uniformemente.",
   "Use módulos visuais: monitoramento, manutenção, comercial e acesso.",
-  "Padronize largura e alinhamento; preserve no mínimo 150 px de corredor entre caixas ligadas.",
+  "Padronize largura e alinhamento; use o menor corredor que deixe nomes, setas e multiplicidades livres, sem vazios sem função.",
   "Reserve corredores exclusivos para nomes e multiplicidades; encurte verbos e remova rótulos redundantes de generalizações.",
   "Prefira linhas ortogonais, conexões curtas e rótulos pequenos; evite diagonais, cruzamentos e troncos coincidentes.",
   "No modelo conceitual, exiba somente conceitos, verbos de relacionamento e cardinalidades.",
@@ -467,6 +617,9 @@ const layoutGuidelines = [
   "Calcule cada caixa pelo maior texto visível e use a menor largura segura, sem cortar conteúdo.",
   "Priorize linhas retas; quando houver desvio, use segmentos ortogonais alinhados à grade.",
   "Distribua classes do mesmo nível simetricamente e mantenha centros, linhas e corredores alinhados.",
+  "Casos de uso (Ambler): uma coluna na ordem em que acontecem, atores primários à esquerda, sistemas externos à direita, especializações abaixo do ator pai.",
+  "Casos de uso: incluídos e extensões na mesma linha do caso base, à direita, com seta horizontal; include vai do base ao incluído e extend da extensão ao base.",
+  "Casos de uso: relações retas em leque, presas às extremidades das elipses; nada de cotovelos ou corredores compartilhados.",
   "Ao final, exporte todas as visões para PNG e inspecione caixas, linhas, nomes e multiplicidades antes de concluir."
 ];
 
@@ -520,7 +673,7 @@ const tools = [
                 items: {
                   type: "object",
                   properties: {
-                    id: { type: "string" }, kind: { type: "string", description: "Tipo da relação; consulte get_astah_capabilities." },
+                    id: { type: "string" }, kind: { type: "string", description: "Tipo da relação; consulte get_astah_capabilities. Em casos de uso, include vai do caso base ao incluído e extend da extensão ao caso base." },
                     source: { type: "string" }, target: { type: "string" }, label: { type: "string" },
                     sourceMultiplicity: { type: "string" }, targetMultiplicity: { type: "string" },
                     y: { type: "number", description: "Posição vertical de mensagem em diagramas de sequência; automática se omitida." },
