@@ -42,7 +42,7 @@ import com.change_vision.jude.api.inf.project.ProjectAccessor;
 public final class UniversalAstahModel {
     private static final class Node {
         String id, kind, name, parent, auxiliary;
-        double x, y, width;
+        double x, y, width, height;
     }
 
     private static final class Member {
@@ -93,6 +93,7 @@ public final class UniversalAstahModel {
                     node.parent = decode(field(values, 6));
                     node.width = Double.parseDouble(field(values, 7).equals("-") ? "0" : values[7]);
                     node.auxiliary = decode(field(values, 8));
+                    node.height = field(values, 9).equals("-") ? 0 : Double.parseDouble(values[9]);
                     current.nodes.add(node);
                     break;
                 }
@@ -420,7 +421,20 @@ public final class UniversalAstahModel {
         ActivityDiagramEditor editor = accessor.getDiagramEditorFactory().getActivityDiagramEditor();
         editor.createActivityDiagram(owner, spec.name);
         Map<String, INodePresentation> nodes = new LinkedHashMap<>();
+        // Raias verticais, na ordem da especificação; o layout já calculou largura e altura de cada uma.
+        INodePresentation previous = null, first = null;
+        List<INodePresentation> lanes = new ArrayList<>();
+        Node firstLane = null;
         for (Node node : spec.nodes) {
+            if (!node.kind.equals("partition")) continue;
+            previous = editor.createPartition(null, previous, node.name, false);
+            previous.setWidth(node.width);
+            lanes.add(previous);
+            if (first == null) { first = previous; firstLane = node; }
+        }
+        if (first != null) first.setLocation(point(firstLane));
+        for (Node node : spec.nodes) {
+            if (node.kind.equals("partition")) continue;
             INodePresentation presentation;
             String requiredName = node.name.isBlank() ? node.id : node.name;
             switch (node.kind) {
@@ -441,6 +455,17 @@ public final class UniversalAstahModel {
             if (List.of("action", "send_signal", "accept_event", "accept_time", "process").contains(node.kind)) size(presentation, node);
             centerOn(presentation, node);
             nodes.put(node.id, presentation);
+        }
+        // Ao receber um nó, a raia pode empurrar os que já estavam nela; a altura pedida volta ao fim.
+        if (first != null) {
+            for (Node node : spec.nodes) {
+                INodePresentation presentation = nodes.get(node.id);
+                if (presentation != null) presentation.setLocation(new Point2D.Double(presentation.getLocation().getX(), node.y));
+            }
+            // A raia se ajusta ao conteúdo enquanto recebe os nós; a altura final sai da posição real deles.
+            double bottom = 0;
+            for (INodePresentation presentation : nodes.values()) bottom = Math.max(bottom, presentation.getLocation().getY() + presentation.getHeight());
+            for (INodePresentation lane : lanes) lane.setHeight(bottom + 30 - lane.getLocation().getY());
         }
         for (Link link : spec.links) {
             ILinkPresentation flow = link.kind.equals("dependency")

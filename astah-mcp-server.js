@@ -211,7 +211,7 @@ const diagramCapabilities = {
   },
   activity: {
     label: "atividades",
-    nodes: ["initial", "final", "flow_final", "action", "send_signal", "accept_event", "accept_time", "process", "decision_merge", "fork", "join", "connector"],
+    nodes: ["initial", "final", "flow_final", "action", "send_signal", "accept_event", "accept_time", "process", "decision_merge", "fork", "join", "connector", "partition"],
     links: ["flow", "dependency"]
   },
   sequence: {
@@ -455,8 +455,11 @@ function layoutUseCases(diagram) {
  * Retorna false quando há nós aninhados ou posições informadas.
  */
 function layoutFlow(diagram) {
-  const { nodes, members } = diagram;
-  if (!diagram.links.length || nodes.some(node => node.parent || node.x !== undefined || node.y !== undefined)) return false;
+  const { members } = diagram;
+  // Raias (partition) viram colunas; cada nó aponta a sua raia em parent.
+  const lanes = diagram.nodes.filter(node => node.kind === "partition");
+  const nodes = diagram.nodes.filter(node => node.kind !== "partition");
+  if (!diagram.links.length || diagram.nodes.some(node => (node.parent && !lanes.length) || node.x !== undefined || node.y !== undefined)) return false;
   // GAP_Y: respiro entre camadas, suficiente para a seta e uma guarda.
   const GAP_Y = 52, COLUMN_GAP = 50, LANE_GAP = 30, MARGIN = 30;
   const heightOf = node => ({ action: 24, send_signal: 24, accept_event: 24, accept_time: 30, process: 24, state: 36, fork: 10, join: 10 })[node.kind] ?? 20;
@@ -510,10 +513,32 @@ function layoutFlow(diagram) {
   const byId = new Map(nodes.map(node => [node.id, node]));
   const widest = Math.max(...nodes.map(node => node.width));
   const minColumn = Math.min(...column.values());
-  const centerX = id => MARGIN + widest / 2 + (column.get(id) - minColumn) * (widest + COLUMN_GAP);
+  let centerX = id => MARGIN + widest / 2 + (column.get(id) - minColumn) * (widest + COLUMN_GAP);
+  // Cada raia recebe só as colunas que os seus nós usam, com folga para os laços.
+  const LANE_PAD = 30;
+  const laneOf = id => byId.get(id).parent || lanes[0]?.id;
+  const laneIndex = id => lanes.findIndex(lane => lane.id === laneOf(id));
+  if (lanes.length) {
+    // Cada coluna de uma raia tem a largura do seu maior nó, e a raia só tem as colunas que usa.
+    const centers = new Map();
+    let x = MARGIN;
+    for (const lane of lanes) {
+      const own = nodes.filter(node => laneOf(node.id) === lane.id);
+      const used = [...new Set(own.map(node => column.get(node.id)))].sort((a, b) => a - b);
+      const widths = used.map(col => Math.max(...own.filter(node => column.get(node.id) === col).map(node => node.width)));
+      const inner = widths.reduce((sum, value) => sum + value, 0) + Math.max(0, used.length - 1) * COLUMN_GAP;
+      lane.width = Math.max(inner + 2 * LANE_PAD, 40 + lane.name.length * 7);
+      lane.x = x;
+      let cursor = x + (lane.width - inner) / 2;
+      used.forEach((col, index) => { centers.set(`${lane.id}:${col}`, cursor + widths[index] / 2); cursor += widths[index] + COLUMN_GAP; });
+      x += lane.width;
+    }
+    centerX = id => centers.get(`${laneOf(id)}:${column.get(id)}`);
+  }
   const layerTop = [];
   const layerCount = Math.max(...layer.values()) + 1;
-  for (let index = 0, y = MARGIN; index < layerCount; index++) {
+  // O Astah desenha o cabeçalho das raias acima da posição pedida; a primeira camada começa logo abaixo dele.
+  for (let index = 0, y = lanes.length ? MARGIN + 20 : MARGIN; index < layerCount; index++) {
     layerTop.push(y);
     y += Math.max(...nodes.filter(node => layer.get(node.id) === index).map(heightOf)) + GAP_Y;
   }
@@ -526,15 +551,33 @@ function layoutFlow(diagram) {
 
   for (const link of forward) {
     const from = column.get(link.source), to = column.get(link.target);
-    if (from === to) continue;
+    if (Math.round(centerX(link.source)) === Math.round(centerX(link.target))) continue;
+    if (from === to) {
+      // Mesma coluna lógica em raias diferentes: desce, cruza no vão entre as camadas e desce de novo.
+      const middle = Math.round(top(link.target) - GAP_Y / 2);
+      link.points ??= [[Math.round(centerX(link.source)), middle], [Math.round(centerX(link.target)), middle]];
+      continue;
+    }
     link.points ??= Math.abs(to) < Math.abs(from)
       ? [[Math.round(centerX(link.source)), Math.round(centerY(link.target))]]
       : [[Math.round(centerX(link.target)), Math.round(centerY(link.source))]];
   }
   let lane = Math.max(...nodes.map(node => node.x + node.width)) + LANE_GAP;
   for (const link of back) {
-    link.points ??= [[Math.round(lane), Math.round(centerY(link.source))], [Math.round(lane), Math.round(centerY(link.target))]];
+    // Com raias, o laço passa logo à direita dos nós entre as duas pontas, sem atravessar as raias seguintes.
+    let corridor = lane;
+    if (lanes.length) {
+      const lo = Math.min(layer.get(link.source), layer.get(link.target)), hi = Math.max(layer.get(link.source), layer.get(link.target));
+      const last = Math.max(laneIndex(link.source), laneIndex(link.target));
+      const span = nodes.filter(node => layer.get(node.id) >= lo && layer.get(node.id) <= hi && laneIndex(node.id) <= last);
+      corridor = Math.max(...span.map(node => node.x + node.width)) + 20;
+    }
+    link.points ??= [[Math.round(corridor), Math.round(centerY(link.source))], [Math.round(corridor), Math.round(centerY(link.target))]];
     lane += 20;
+  }
+  for (const item of lanes) {
+    item.y = MARGIN;
+    item.height = Math.round(layerTop[layerCount - 1] + 90 - MARGIN);
   }
   return true;
 }
@@ -762,7 +805,7 @@ function serializeSpecification(diagrams) {
   for (const diagram of diagrams) {
     lines.push(["DIAGRAM", diagram.type, encodeField(diagram.name)].join("\t"));
     for (const node of diagram.nodes) {
-      lines.push(["NODE", encodeField(node.id), node.kind, encodeField(node.name), node.x, node.y, encodeField(node.parent), node.width, encodeField(node.classifier ?? node.type)].join("\t"));
+      lines.push(["NODE", encodeField(node.id), node.kind, encodeField(node.name), node.x, node.y, encodeField(node.parent), node.width, encodeField(node.classifier ?? node.type), node.height ?? "-"].join("\t"));
     }
     for (const member of diagram.members) {
       lines.push(["MEMBER", encodeField(member.node), member.kind, encodeField(member.name), encodeField(member.type), encodeField(member.parameters)].join("\t"));
@@ -846,7 +889,7 @@ const tools = [
                     id: { type: "string", description: "Identificador local único." },
                     kind: { type: "string", description: "Tipo do elemento; consulte get_astah_capabilities." },
                     name: { type: "string" },
-                    parent: { type: "string", description: "ID do elemento pai para tópicos, portas ou estados aninhados." },
+                    parent: { type: "string", description: "ID do elemento pai para tópicos, portas ou estados aninhados; em atividades, ID da raia (partition) do nó." },
                     classifier: { type: "string", description: "Classificador de um objeto ou tipo de uma porta, quando aplicável." },
                     x: { type: "number", description: "Opcional. Omitir para layout automático." },
                     y: { type: "number", description: "Opcional. Omitir para layout automático." },
